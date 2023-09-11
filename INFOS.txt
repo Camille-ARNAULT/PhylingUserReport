@@ -1,0 +1,15 @@
+***INFOS***
+Pilote (Prenom NOM): 
+Joris DAUDET
+Braquet (plateau/pignon): 
+44/16
+LongueurManivelle (mm): 
+180
+CirconférenceRoue (mm):
+1566
+Piste :
+CREPS Talence
+
+
+
+
