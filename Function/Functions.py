@@ -4,6 +4,9 @@
 
 import os
 from reportlab.pdfgen.canvas import Canvas
+from reportlab.platypus import Paragraph, SimpleDocTemplate,Table, TableStyle
+from reportlab.lib import colors
+from reportlab.lib.pagesizes import A4, landscape
 import shutil
 from sklearn.linear_model import LinearRegression
 from datetime import datetime
@@ -15,9 +18,9 @@ from scipy.interpolate import CubicSpline
 from scipy.signal import butter
 from scipy.signal import filtfilt
 from scipy.signal import find_peaks
+from scipy.signal import peak_prominences
 from colorama import Fore, init
 init(autoreset=True)
-
 
 def InterpolationResample(xinit, xfinal, y):
     """
@@ -526,6 +529,8 @@ def CalculationForOneStart(InputPath, FileName, OutputPath, CirconferenceRoue=15
             locals()['Storage']['RawDataResample']['force_d'], FreqAcq, 20)
         GyroPedalierFiltre = FiltrageButterworth(
             locals()['Storage']['RawDataResample']['gyro_pedalier'], FreqAcq, 20)
+        DataMagnetoPedalierFiltrees = FiltrageButterworth(
+            locals()['Storage']['RawDataResample']['magneto'], 200, 50)
         print("- Crankset data filtered.")
     except:
         print(Fore.RED + "ERROR : Crankset data could not be filtered.")
@@ -563,12 +568,10 @@ def CalculationForOneStart(InputPath, FileName, OutputPath, CirconferenceRoue=15
         print("- Crank calculation successful.")
     except:
         print(Fore.RED + "ERROR : Crank displacement could not be calculated.")
-    # Magneto data filtering & magneto pedalier peaks detection
+    # magneto pedalier peaks detection
     try:
-        DataMagnetoPedalierFiltrees = FiltrageButterworth(
-            DataPedalier['magneto_pedalier'], 200, 50)
         MagnetoPeaks, _ = find_peaks(DataMagnetoPedalierFiltrees, height=(
-            10000, None), prominence=(500, None))
+            None, None), prominence=(500, None))
         if VerificationCrankPeaks in ['Oui', 'oui', 'OUI', 'o', 'O', 'YES', 'Yes', 'yes', 'Y', 'y']:
             plt.figure()
             plt.plot(MagnetoPeaks,
@@ -581,30 +584,24 @@ def CalculationForOneStart(InputPath, FileName, OutputPath, CirconferenceRoue=15
     try:
         # Angular correction
         AngleReel = 270-AngleCadre
-        SommeDeplacementAngulairePedalier = np.cumsum(
-            DeplacementAngulairePedalier)
-        SommeDeplacementAngulairePedalierCorrige = [
-            0 for i in range(0, len(SommeDeplacementAngulairePedalier))]
+        SommeDeplacementAngulairePedalier = np.cumsum(DeplacementAngulairePedalier)
+        SommeDeplacementAngulairePedalierCorrige = [0 for i in range(0, len(SommeDeplacementAngulairePedalier))]
 
         for i in range(0, len(MagnetoPeaks)+1):
             if i == 0:
-                offset = AngleReel - \
-                    SommeDeplacementAngulairePedalier[MagnetoPeaks[i]]
+                offset = AngleReel - SommeDeplacementAngulairePedalier[MagnetoPeaks[i]]
                 for j in range(0, MagnetoPeaks[0]+1):
                     SommeDeplacementAngulairePedalierCorrige[j] = SommeDeplacementAngulairePedalier[j]+offset
             if i == len(MagnetoPeaks):
-                OffsetContinu = (360*(i-1)+AngleReel) - \
-                    SommeDeplacementAngulairePedalier[MagnetoPeaks[i-1]]
+                OffsetContinu = (360*(i-1)+AngleReel) -SommeDeplacementAngulairePedalier[MagnetoPeaks[i-1]]
                 for j in range(MagnetoPeaks[i-1], len(SommeDeplacementAngulairePedalier)):
                     SommeDeplacementAngulairePedalierCorrige[j] = SommeDeplacementAngulairePedalier[j]+OffsetContinu
             else:
-                OffsetContinu = (360*(i-1)+AngleReel) - \
-                    SommeDeplacementAngulairePedalier[MagnetoPeaks[i-1]]
+                OffsetContinu = (360*(i-1)+AngleReel) - SommeDeplacementAngulairePedalier[MagnetoPeaks[i-1]]
                 for j in range(MagnetoPeaks[i-1], MagnetoPeaks[i]+1):
                     SommeDeplacementAngulairePedalierCorrige[j] = SommeDeplacementAngulairePedalier[j]+OffsetContinu
 
-                OffsetVariable = (
-                    360*i+AngleReel)-SommeDeplacementAngulairePedalierCorrige[MagnetoPeaks[i]]
+                OffsetVariable = (360*i+AngleReel)-SommeDeplacementAngulairePedalierCorrige[MagnetoPeaks[i]]
                 LongueurApplicationOffset = MagnetoPeaks[i]-MagnetoPeaks[i-1]
                 Inc = 0
                 for j in range(MagnetoPeaks[i-1], MagnetoPeaks[i]+1):
@@ -622,7 +619,16 @@ def CalculationForOneStart(InputPath, FileName, OutputPath, CirconferenceRoue=15
                 AngleManivelleDroite[j] = (
                     SommeDeplacementAngulairePedalierCorrige[j]-180) % 360
     except:
-        print(Fore.RED + "ERROR : Total crank displacement could not be calculated.")
+        # Modulo 360
+        AngleManivelleGauche = [0 for i in range(
+            0, len(SommeDeplacementAngulairePedalier))]
+        AngleManivelleDroite = [0 for i in range(
+            0, len(SommeDeplacementAngulairePedalier))]
+        for j in range(0, len(SommeDeplacementAngulairePedalier)):
+            AngleManivelleGauche[j] = SommeDeplacementAngulairePedalier[j] % 360
+            AngleManivelleDroite[j] = (
+                SommeDeplacementAngulairePedalier[j]-180) % 360
+        print(Fore.RED + "ERROR : Total crank displacement could not be corrected with magneto.")
     # Data Storage in Dataframe
     try:
         locals()['Storage']['DataPedalier'] = {}
@@ -642,7 +648,7 @@ def CalculationForOneStart(InputPath, FileName, OutputPath, CirconferenceRoue=15
     try:
         # Filtering
         DataMagnetoFiltrees = FiltrageButterworth(
-            DataTopTour['magneto_toptour'], 800, 50)
+            DataTopTour['magneto_toptour'], 800, 300)
 
         # Magnetic peaks detection & Velocity calculation
         XVitesseTopTour, XDistanceTopTour, VitesseTopTour, DistanceTopTourM, PeaksNeg, PeaksPos = CalculVitesseTopTourArriere(
@@ -650,6 +656,7 @@ def CalculationForOneStart(InputPath, FileName, OutputPath, CirconferenceRoue=15
         # Verification of Magnetic peaks detection
         if VerificationRevolutionCounterPeaks in ['Oui', 'oui', 'OUI', 'o', 'O', 'YES', 'Yes', 'yes', 'Y', 'y']:
             plt.figure()
+            plt.plot(DataTopTour['magneto_toptour'])
             plt.plot(DataMagnetoFiltrees)
             plt.plot(PeaksPos, DataMagnetoFiltrees[PeaksPos], 'x')
             plt.plot(PeaksNeg, DataMagnetoFiltrees[PeaksNeg], 'x')
@@ -657,27 +664,22 @@ def CalculationForOneStart(InputPath, FileName, OutputPath, CirconferenceRoue=15
 
         # Top Tour Velocity Resample
         # Create time data before first velocity calculated (because of the spacement between magnet, velocity is not calculated at specific frequency as other mesurement could.)
-        ttoptour = DataTopTour['temps_toptour'][XVitesseTopTour][DataTopTour['temps_toptour']
-                                                                 [XVitesseTopTour].index[0]]
+        ttoptour = DataTopTour['temps_toptour'][XVitesseTopTour[0]]
         LongueurIntervalle1 = IndexNearestValue(x, ttoptour)
         if x[LongueurIntervalle1] > ttoptour:
             LongueurIntervalle1 = LongueurIntervalle1 - 1
-        IntervalleZeros1 = pd.Series(
-            [0 for i in range(0, LongueurIntervalle1)])
-        IntervalleTemps1 = pd.Series(
-            [x[0]+(1/FreqAcq)*i for i in range(0, LongueurIntervalle1)])
+        IntervalleZeros1 = pd.Series([0 for i in range(0, LongueurIntervalle1)])
+        IntervalleTemps1 = pd.Series([x[0]+(1/FreqAcq)*i for i in range(0, LongueurIntervalle1)])
+        
         # Create time data after last velocity calculated
-        ttoptour = DataTopTour['temps_toptour'][XVitesseTopTour][DataTopTour['temps_toptour']
-                                                                 [XVitesseTopTour].index[len(DataTopTour['temps_toptour'][XVitesseTopTour])-1]]
+        ttoptour = DataTopTour['temps_toptour'][XVitesseTopTour[-1]]
         LongueurIntervalle2 = IndexNearestValue(x, ttoptour)
-        if x[LongueurIntervalle2] < ttoptour:
+        if x[LongueurIntervalle2] < ttoptour and (LongueurIntervalle2+1)<len(x):
             LongueurIntervalle2 = LongueurIntervalle2 + 1
-        IntervalleZeros2 = pd.Series(
-            [0 for i in range(0, len(x)-LongueurIntervalle2)])
-        IntervalleTemps2 = pd.Series(
-            [x[LongueurIntervalle2]+(1/FreqAcq)*i for i in range(0, len(x)-LongueurIntervalle2+1)])
-        IntervalleDistance2 = pd.Series([DistanceTopTourM[len(
-            DistanceTopTourM)-1] for i in range(0, len(x)-LongueurIntervalle2)])
+        IntervalleZeros2 = pd.Series([0 for i in range(0, len(x)-LongueurIntervalle2)])
+        IntervalleTemps2 = pd.Series([x[LongueurIntervalle2]+(1/FreqAcq)*i for i in range(0, len(x)-LongueurIntervalle2+1)])
+        IntervalleDistance2 = pd.Series([DistanceTopTourM[len(DistanceTopTourM)-1] for i in range(0, len(x)-LongueurIntervalle2)])
+        
         # Intervalle1 + Données TopTour + Intervalle2
         NewTempsTopTour = pd.concat(
             [IntervalleTemps1, DataTopTour['temps_toptour'][XVitesseTopTour], IntervalleTemps2], ignore_index=True)
@@ -711,6 +713,7 @@ def CalculationForOneStart(InputPath, FileName, OutputPath, CirconferenceRoue=15
             plt.grid()
             plt.legend(['VitessePedalier', 'Vitesse Top Tour Initiale',
                        'Vitesse Top Tour Interpolée'])
+            
     except:
         print('ERROR : Revolution counter resample prep failed.')
     #DataStorage in DataFrame
@@ -907,10 +910,15 @@ def DetectionCoupPedaleDepart(PowerData, FrameInit, LimitsPedalingArea, Verifica
     """
 
     # Peaks detection in -Power to find hollows
-    PuissancePeaks, _ = find_peaks(-PowerData[LimitsPedalingArea[0]                                   :LimitsPedalingArea[1]], height=(None, 1000), prominence=(500, None))
+    PuissancePeaks,_ = find_peaks(PowerData[LimitsPedalingArea[0]:LimitsPedalingArea[1]], height=(None, None),prominence=500)
     PuissancePeaks = PuissancePeaks+LimitsPedalingArea[0]
-    PuissancePeaks = np.insert(PuissancePeaks, 0, LimitsPedalingArea[0])
-    IndexPedalStroke = PuissancePeaks
+    
+    CreuxPuissance = [0 for i in range(0,len(PuissancePeaks)-1)]
+    for i in range(0,len(PuissancePeaks)-1):
+        CreuxPuissance[i] = np.argmin(PowerData[PuissancePeaks[i]:PuissancePeaks[i+1]])+PuissancePeaks[i]
+
+    IndexPedalStroke = np.insert(CreuxPuissance, 0, LimitsPedalingArea[0])
+    IndexPedalStroke = np.insert(IndexPedalStroke, len(IndexPedalStroke), LimitsPedalingArea[1])
 
     # Correction First CP Index
     inc = FrameInit+50
@@ -919,6 +927,7 @@ def DetectionCoupPedaleDepart(PowerData, FrameInit, LimitsPedalingArea, Verifica
         inc = inc+1
         a = PowerData[inc]
     IndexPedalStroke[0] = inc
+    
     # Correction last CP Index
     inc = IndexPedalStroke[-1]-100
     a = PowerData[inc]
@@ -932,6 +941,7 @@ def DetectionCoupPedaleDepart(PowerData, FrameInit, LimitsPedalingArea, Verifica
         plt.suptitle("PEDAL STROKE DETECTION")
         plt.title('Results :')
         plt.plot(PowerData[LimitsPedalingArea[0]:LimitsPedalingArea[1]])
+        plt.plot(IndexPedalStroke, PowerData[IndexPedalStroke], 'x')
         plt.plot(PuissancePeaks, PowerData[PuissancePeaks], 'x')
         plt.xlabel("Frame")
         plt.ylabel("Power (W)")
@@ -953,8 +963,6 @@ def StartCalculation(InputPath, FileName, OutputPath, PiedAvant, VerificationSta
         print(Fore.RED + 'ERROR : Data extraction failed.')
 
     try:
-        # 1 = nb area to detect
-        # 200 = who much frame will be analyzed after the user selection to detect start
         FrameInit, FrameEnd = DetectionDepartsSemiAuto(
             Data['CadenceTrMin'], VerificationStartDetection=VerificationStartDetection)
         print("- Start detected")
@@ -963,7 +971,6 @@ def StartCalculation(InputPath, FileName, OutputPath, PiedAvant, VerificationSta
 
     # Pedal stroke area detection
     try:
-        # 25 = How much frame will be analyzed before and after the user selection to find the pedal stroke area
         IndexZP = FindZonesPedalees(Data["CadenceTrMin"], FrameInit, FrameEnd)
         print("- Pedal stroke area detected.")
     except:
@@ -972,8 +979,7 @@ def StartCalculation(InputPath, FileName, OutputPath, PiedAvant, VerificationSta
     # Pedal stroke detection
     try:
         # Get Pedal Stroke Index
-        IndexCP = DetectionCoupPedaleDepart(
-            Data["PuissanceTotale"], FrameInit, IndexZP, VerificationPedalStroke=VerificationPedalStroke)
+        IndexCP = DetectionCoupPedaleDepart(Data["PuissanceTotale"], FrameInit, IndexZP, VerificationPedalStroke=VerificationPedalStroke)
         print("- Pedal stroke cycle detected.")
         # Get Mean Pedal Stroke Index
         IndexMeanCP = [0 for i in range(len(IndexCP)-1)]
@@ -1189,7 +1195,9 @@ def StartCalculation(InputPath, FileName, OutputPath, PiedAvant, VerificationSta
     locals()[
         "StartAnalysisResults"]['Cadence'] = Data['CadenceTrMin'][FrameInit:FrameEnd]
     locals()[
-        "StartAnalysisResults"]['Vitesse'] = Data['VitessePedalier'][FrameInit:FrameEnd]
+        "StartAnalysisResults"]['VitessePedalier'] = Data['VitessePedalier'][FrameInit:FrameEnd]
+    locals()[
+        "StartAnalysisResults"]['VitesseTopTour'] = Data['VitesseTopTour'][FrameInit:FrameEnd]
 
     # IN A CSV FILE
     try:
@@ -1246,7 +1254,8 @@ def StartCalculation(InputPath, FileName, OutputPath, PiedAvant, VerificationSta
                                   locals()["StartAnalysisResults"]['AngleTotalRecul']),
                               (pd.Series(locals()["StartAnalysisResults"]['Cadence'])).reset_index(
                                   drop=True),
-                              (pd.Series(locals()["StartAnalysisResults"]['Vitesse'])).reset_index(drop=True)], axis=1, sort=False)
+                              (pd.Series(locals()["StartAnalysisResults"]['VitessePedalier'])).reset_index(drop=True),
+                              (pd.Series(locals()["StartAnalysisResults"]['VitesseTopTour'])).reset_index(drop=True)], axis=1, sort=False)
         all_data = all_data.set_axis(['FrameInit', 'FrameEnd', 'IndexCP', 'IndexMeanCP', 'Temps',
                                       'ForceGaucheInstant', 'ForceDroiteInstant', 'ForceInstant',
                                       'ForceMoyDCP', 'ForceMaxDCP', 'ForceMaxDCPIndex', 'ImpulsionDCP',
@@ -1255,7 +1264,7 @@ def StartCalculation(InputPath, FileName, OutputPath, PiedAvant, VerificationSta
                                       'TravailDCP', 'TravailCumuleDCP', 'TravailCumule',
                                       'AngleManivelleGauche', 'AngleManivelleDroite',
                                       'AngleManivelleDepart', 'AngleManivelleReculMax', 'AngleTotalRecul',
-                                      'Cadence', 'VitessePedalier'], axis=1)
+                                      'Cadence', 'VitessePedalier', 'VitesseTopTour'], axis=1)
 
         # all_data.to_csv(OutputPath + FileName + '_StartAnalysis.xlsx',mode='a',index=False)
 
@@ -1271,7 +1280,7 @@ def StartCalculation(InputPath, FileName, OutputPath, PiedAvant, VerificationSta
     return locals()["StartAnalysisResults"]
 
 
-def ReportEdition(InputPath, FileName, OutputPath, PilotName, BraquetTxt, CranksetLength, Piste):
+def ReportEdition(InputPath, FileName, OutputPath, PilotName, BraquetTxt, Braquet, CranksetLength, WheelCircumference, Piste):
 
     # IMPORTATION DES DONNEES
     try:
@@ -1295,7 +1304,9 @@ def ReportEdition(InputPath, FileName, OutputPath, PilotName, BraquetTxt, Cranks
              [0:700], color='#70AD47', lw=2)
     for i in range(0, NbCP):
         ax.annotate(str(round(Data["ForceMaxDCP"][i])), xy=(Data["ForceMaxDCPIndex"][i], Data["ForceMaxDCP"][i]), xytext=(
-            Data["ForceMaxDCPIndex"][i]-0.05, Data["ForceMaxDCP"][i]+50))
+            Data["ForceMaxDCPIndex"][i]-
+            0.05, Data["ForceMaxDCP"][i]+50))
+    plt.title("FORCE INSTANTANEE TOTALE")
     plt.legend(['F moy', 'F instant'])
     plt.xlabel('Temps (s)')
     plt.ylabel('Force (N)')
@@ -1310,6 +1321,7 @@ def ReportEdition(InputPath, FileName, OutputPath, PilotName, BraquetTxt, Cranks
     plt.plot(Data["Temps"][0:700], Data["ForceGaucheInstant"][0:700], color='#C90D50', lw=2)
     plt.plot(Data["Temps"][0:700], Data["ForceDroiteInstant"][0:700], color='#00B0F0', lw=2)
     plt.legend(['Force gauche', 'Force droite'])
+    plt.title("FORCE INSTANTANEE GAUCHE/DROITE")
     plt.xlabel('Temps (s)')
     plt.ylabel('Force (N)')
     plt.savefig(OutputPath+FileName+"_ForceGaucheDroite.png")
@@ -1431,6 +1443,34 @@ def ReportEdition(InputPath, FileName, OutputPath, PilotName, BraquetTxt, Cranks
     plt.ylabel('% de Puissance > 70% de Pmax')
     plt.savefig(OutputPath+FileName+"_RMPD70.png")
     plt.close()
+    
+    #Graphique Cadence
+    fig = plt.figure(figsize=(12, 6))
+    ax1 = fig.add_subplot(111)
+    plt.xlim([0, 3.5])
+    ax1.plot(Data["Temps"], Data["Cadence"])
+    ax1.set_xlabel('Temps (s)')
+    mn, mx = ax1.get_ylim()
+    ax1.set_ylabel('Cadence (tr/min)')
+    CadToSpeed = (WheelCircumference/1000)*Braquet*(60/1000)
+    ax2 = ax1.twinx()
+    ax2.set_ylim(mn*CadToSpeed, mx*CadToSpeed)
+    ax2.set_ylabel('Vitesse (km/h)')
+    ax1.grid() 
+    plt.savefig(OutputPath+FileName+"_Cadence.png")
+    plt.close()
+    
+    #Graphique Vitesse
+    fig = plt.figure(figsize=(12, 6))
+    ax1 = fig.add_subplot(111)
+    plt.xlim([0, 3.5])
+    ax1.plot(Data["Temps"],Data["VitesseTopTour"])
+    ax1.set_xlabel('Temps (s)')
+    mn, mx = ax1.get_ylim()
+    ax1.set_ylabel('Vitesse (km/h)')
+    plt.grid() 
+    plt.savefig(OutputPath+FileName+"_Speed.png")
+    plt.close()
 
     # Travail Cumulé
     fig = plt.figure(figsize=(12, 6))
@@ -1438,11 +1478,11 @@ def ReportEdition(InputPath, FileName, OutputPath, PilotName, BraquetTxt, Cranks
     plt.grid()
     plt.xlim([0, 3.5])
     for i in range(0, NbCP):
-        plt.plot([Data["Temps"][0], Data["Temps"][699]], [Data["TravailCumuleDCP"],
+        ax.plot([Data["Temps"][0], Data["Temps"][699]], [Data["TravailCumuleDCP"],
                  Data["TravailCumuleDCP"]], linestyle='--', color='#A5A5A5', linewidth=0.5)
         ax.annotate(str(round(Data["TravailCumuleDCP"][i])), xy=(
             0.05, Data["TravailCumuleDCP"][i]+10), color='#A5A5A5')
-    plt.plot(Data["Temps"][0:700], Data["TravailCumule"]
+    ax.plot(Data["Temps"][0:700], Data["TravailCumule"]
              [0:700], color='#00B0F0')
     plt.title("ENERGIE CUMULEE")
     plt.xlabel('Temps (s)')
@@ -1450,21 +1490,24 @@ def ReportEdition(InputPath, FileName, OutputPath, PilotName, BraquetTxt, Cranks
     plt.savefig(OutputPath+FileName+"_TravailCumule.png")
     plt.close()
 
-    #%% PAGE CONFIGURATION
+    #-------------------------
+        # PAGE CONFIGURATION
+    #-------------------------
+
     pdf = Canvas(OutputPath+FileName+"_Report.pdf")
     # TITLE
-    pdf.setFont("Times-Bold", 18)
+    pdf.setFont("Helvetica-Bold", 18)
     pdf.drawString(200, 800, "RAPPORT D'ANALYSE")
 
     # PILOT INFOS
-    pdf.setFont("Times-Bold", 12)
+    pdf.setFont("Helvetica-Bold", 12)
     pdf.drawString(50, 775, "Pilote :")
     pdf.drawString(50, 750, "Braquet :")
     pdf.drawString(50, 725, "Longueur manivelle :")
     pdf.drawString(350, 775, "Piste :")
     pdf.drawString(350, 750, "Jour :")
     pdf.drawString(350, 725, "Heure :")
-    pdf.setFont("Times-Roman", 12)
+    pdf.setFont("Helvetica", 12)
     pdf.drawString(90, 775, PilotName)
     pdf.drawString(102, 750, BraquetTxt)
     pdf.drawString(162, 725, str(CranksetLength)+" cm")
@@ -1474,7 +1517,7 @@ def ReportEdition(InputPath, FileName, OutputPath, PilotName, BraquetTxt, Cranks
     pdf.drawString(393, 725, FileName[24:26]+"h"+FileName[26:28])
 
     # AFFICHAGE DONNEES FORCE
-    pdf.setFont("Times-Bold", 12)
+    pdf.setFont("Helvetica-Bold", 12)
     pdf.drawString(
         120, 680, "FORCE (N) EN FONCTION DE L'ANGLE DE LA MANIVELLE")
     # cp1
@@ -1502,6 +1545,11 @@ def ReportEdition(InputPath, FileName, OutputPath, PilotName, BraquetTxt, Cranks
     pdf.showPage()
     pdf.drawInlineImage(OutputPath+FileName +
                         "_TravailCumule.png", 0, 450, 600, 300)
+    
+    # AFFICHAGE DONNEES VITESSE
+    pdf.showPage()
+    pdf.drawInlineImage(OutputPath+FileName+"_Cadence.png", 0, 450, 600, 300)
+    pdf.drawInlineImage(OutputPath+FileName+"_Speed.png", 0, 100, 600, 300)
 
     #SUPPRESSION DES FIGURES EXTERNE
     os.remove(OutputPath+FileName+"_Power.png")
@@ -1517,6 +1565,428 @@ def ReportEdition(InputPath, FileName, OutputPath, PilotName, BraquetTxt, Cranks
     os.remove(OutputPath+FileName +"_ForceCP2PiedAvant.png")
     os.remove(OutputPath+FileName +"_ForceCP3PiedAvant.png")
     os.remove(OutputPath+FileName +"_ForceCP4PiedAvant.png")
+    os.remove(OutputPath+FileName +"_Cadence.png")
+    os.remove(OutputPath+FileName +"_Speed.png")
+    # SAVE
+    pdf.save()
+
+
+def ReportEditionComparison(InputPath, OutputPath, FileStartAnalysis, PilotName, BraquetTxt, CranksetLength, WheelCircumference, Piste, NbReport) :
+
+#%%    
+    # CREATION DU SET DE COULEURS
+    Couleurs = ["#AE0E0E","#ED7D31","#FFC000","#70AD47","#5E8E32","#22D2CE","#1F83F1","#174795","#8A44D8","#F38DFB","#F12F95","#000000","#434343","#979797","#CDCDCD"]
+
+    #BALAYAGE DE TOUTES LES DONNEES STARTANALYSIS
+    LegendName=["" for i in range(0,len(FileStartAnalysis))]
+    DataForce=pd.DataFrame()
+    DataPuissance=pd.DataFrame()
+    DataCadence=pd.DataFrame()
+    DataEcum=pd.DataFrame()
+    DataECP=pd.DataFrame()
+    for i in range(0,len(FileStartAnalysis)):
+        #Récupération des données
+        try:
+            FileName = FileStartAnalysis[i]
+            Data = pd.read_excel(InputPath+FileName+'_StartAnalysis.xlsx')
+            LegendName[i]= FileName[-9:-7] + "-" + FileName[-11:-9] + "-" + FileName[-13:-11] + " - " + FileName[-6:-4] + "h" + FileName[-4:-2]
+        except:
+            print(Fore.RED + 'ERROR : Data extraction failed.')
+        if len(FileStartAnalysis)<6:
+            #graphique des forces superposées
+            if i == 0 :
+                #Création graphique
+                FigForce = plt.figure(figsize=(12, 6))
+                AxForce = FigForce.add_subplot(111)
+                AxForce.grid()
+                AxForce.set_title("FORCE INSTANTANEE TOTALE")
+                AxForce.set_xlabel('Temps (s)')
+                AxForce.set_ylabel('Force (N)')
+            #Ajout data
+            AxForce.plot(Data["Temps"][0:700],Data["ForceInstant"][0:700],color=Couleurs[i])
+            
+            
+            #graphique des puissances
+            if i == 0 :
+                #Création graphique
+                FigPower = plt.figure(figsize=(12, 6))
+                AxPower = FigPower.add_subplot(111)
+                AxPower.grid()
+                AxPower.set_title("PUISSANCE INSTANTANEE TOTALE")
+                AxPower.set_xlabel('Temps (s)')
+                AxPower.set_ylabel('Puissance (W)')
+            #Ajout data
+            AxPower.plot(Data["Temps"][0:700],Data["PuissanceInstant"][0:700],color=Couleurs[i])
+            
+            #graphique des cadences
+            if i == 0:
+                #Création graphique
+                FigCad = plt.figure(figsize=(12, 6))
+                AxCad = FigCad.add_subplot(111)
+                AxCad.grid()
+                AxCad.set_title("CADENCE")
+                AxCad.set_xlabel('Temps (s)')
+                AxCad.set_ylabel('Cadence (tr/min)')
+            #Ajout data
+            AxCad.plot(Data["Temps"][0:700],Data["Cadence"][0:700],color=Couleurs[i])
+            
+            #graphique energie cumulée
+            if i == 0 :
+                #Création graphique
+                FigEcum = plt.figure(figsize=(12, 6))
+                AxEcum = FigEcum.add_subplot(111)
+                AxEcum.grid()
+                AxEcum.set_title("ENERGIE CUMULEE")
+                AxEcum.set_xlabel('Temps (s)')
+                AxEcum.set_ylabel('Energie (J)')
+            #Ajout data
+            AxEcum.plot(Data["Temps"][0:700],Data["TravailCumule"][0:700],color=Couleurs[i])
+        
+        #Récupération des données de force
+        d = {'ForceTotale_Passage'+str(i+1):Data["ForceInstant"][0:700]}
+        DataForce=pd.concat([DataForce,pd.DataFrame(data=d)],axis=1)
+        #Récupération des données de puissance
+        d = {'PuissanceTotale_Passage'+str(i+1):Data["PuissanceInstant"][0:700]}
+        DataPuissance=pd.concat([DataPuissance,pd.DataFrame(data=d)],axis=1)
+        #Récupération des données de cadence
+        d = {'Cadence_Passage'+str(i+1):Data["Cadence"][0:700]}
+        DataCadence=pd.concat([DataCadence,pd.DataFrame(data=d)],axis=1)
+        #Récupération des données de cadence
+        d = {'Ecum_Passage'+str(i+1):Data["TravailCumule"][0:700]}
+        DataEcum=pd.concat([DataEcum,pd.DataFrame(data=d)],axis=1)
+        d = {'Ecum_Passage'+str(i+1):Data["TravailDCP"][0:9]}
+        DataECP=pd.concat([DataECP,pd.DataFrame(data=d)],axis=1)
+    
+        #Graphique energie culumée exemple pour page 1
+        if i == 0 :
+            #Création graphique
+            FigEcumEx = plt.figure(figsize=(10, 6))
+            AxEcumEx = FigEcumEx.add_subplot(111)
+            AxEcumEx.set_title("ENERGIE CUMULEE")
+            AxEcumEx.set_xlabel('Temps (s)')
+            AxEcumEx.set_ylabel('Energie (J)')
+            #Ajout data
+            AxEcumEx.plot(Data["Temps"][0:700],Data["TravailCumule"][0:700],color=Couleurs[i])
+            #Recup limites
+            YlimInf,YlimSup = AxEcumEx.get_ylim()
+            YLimSupEcum = np.max(Data["TravailCumuleDCP"])
+            XLimSupEcum = np.max(Data["IndexCP"])
+            #Tracage CP
+            Inc = NumberOfNonNans(Data["IndexCP"])
+            for j in range(0,Inc):
+                plt.plot([Data["IndexCP"][j],Data["IndexCP"][j]],[YlimInf,YlimSup],'-',c="#C5C3C3",linewidth=1)
+            #Barrres horizontales
+            AxEcumEx.plot([Data["IndexCP"][0]-0.03,Data["IndexCP"][1]],[Data["TravailCumuleDCP"][0],Data["TravailCumuleDCP"][0]],color = "#434343")
+            AxEcumEx.plot([Data["IndexCP"][1]-0.03,Data["IndexCP"][2]],[Data["TravailCumuleDCP"][1],Data["TravailCumuleDCP"][1]],color = "#434343")
+            AxEcumEx.plot([Data["IndexCP"][0]-0.2,XLimSupEcum],[YLimSupEcum,YLimSupEcum],color = "#434343")
+            #Fleches
+            AxEcumEx.arrow(Data["IndexCP"][0],Data["TravailCumule"][int(Data["IndexCP"][0]*200)],0,Data["TravailCumule"][int(Data["IndexCP"][1]*200)]-Data["TravailCumule"][int(Data["IndexCP"][0]*200)],head_width=0.03, width = 0.01,color='k',length_includes_head=True,head_length = 100)
+            AxEcumEx.arrow(Data["IndexCP"][1],Data["TravailCumule"][int(Data["IndexCP"][1]*200)],0,Data["TravailCumule"][int(Data["IndexCP"][2]*200)]-Data["TravailCumule"][int(Data["IndexCP"][1]*200)],head_width=0.03, width = 0.01,color='k',length_includes_head=True,head_length = 100)
+            AxEcumEx.arrow(Data["IndexCP"][0]-0.2,Data["TravailCumule"][int(Data["IndexCP"][0]*200)],0,YLimSupEcum-Data["TravailCumule"][int(Data["IndexCP"][0]*200)],head_width=0.03, width = 0.01,color='k',length_includes_head=True,head_length = 100)
+            #Textes
+            AxEcumEx.text(Data["IndexCP"][0]-0.1,Data["TravailCumule"][int(Data["IndexCP"][0]*200)]+100,s='Energie CP1',rotation='vertical')
+            AxEcumEx.text(Data["IndexCP"][1]-0.1,Data["TravailCumule"][int(Data["IndexCP"][1]*200)]+100,s='Energie CP2',rotation='vertical')
+            AxEcumEx.text(Data["IndexCP"][0]-0.3,YLimSupEcum/3,s='Energie finale',rotation='vertical')
+            #Remise à l'échelle
+            AxEcumEx.set_ylim(YlimInf,YlimSup)
+            AxEcumEx.legend(["Energie cumulée","Coup de pédale"])
+            
+    #Sauvegarde des figures
+    if len(FileStartAnalysis)<6:
+        AxForce.legend(LegendName)
+        FigForce.savefig(OutputPath + "Comparaison_Forces.png")
+        plt.close()
+        AxPower.legend(LegendName)
+        FigPower.savefig(OutputPath + "Comparaison_Puissances.png")
+        plt.close()
+        AxCad.legend(LegendName)
+        FigCad.savefig(OutputPath + "Comparaison_Cadences.png")
+        plt.close()
+        AxEcum.legend(LegendName)
+        FigEcum.savefig(OutputPath + "Comparaison_EnergiesCumulees.png")
+        plt.close()
+    FigEcumEx.savefig(OutputPath + "ExampleEcum.png")
+    plt.close()
+    
+    #------------------------------------------------
+    #CREATION DES FIGURES MOYENNES + ESSAIS ISOLES
+    #------------------------------------------------
+    
+    #Force
+    ForceMoy = np.mean(DataForce,axis=1)
+    ForceStd = np.std(DataForce,axis=1)
+    #Puissance
+    PuissanceMoy = np.mean(DataPuissance,axis=1)
+    PuissanceStd = np.std(DataPuissance,axis=1)
+    #Cadence
+    CadenceMoy = np.mean(DataCadence,axis=1)
+    CadenceStd = np.std(DataCadence,axis=1)
+    #Energie
+    EcumMoy = np.mean(DataEcum,axis=1)
+    EcumStd = np.std(DataEcum,axis=1)
+    
+    for i in range(0,len(FileStartAnalysis)):
+        #Rechargement des données
+        FileName = FileStartAnalysis[i]
+        Data = pd.read_excel(InputPath+FileName+'_StartAnalysis.xlsx')
+        #Force
+        fig1 = plt.figure(figsize=(12, 6))
+        AxForce = fig1.add_subplot(111)
+        AxForce.yaxis.grid(True)
+        AxForce.set_title("FORCE INSTANTANEE TOTALE")
+        AxForce.set_xlabel('Temps (s)')
+        AxForce.set_ylabel('Force (N)')
+        AxForce.plot(Data["Temps"][0:700],ForceMoy,'--k')
+        AxForce.fill_between(Data["Temps"][0:700],ForceMoy-ForceStd,ForceMoy+ForceStd,color="#D9D9D9")
+        AxForce.plot(Data["Temps"][0:700],DataForce['ForceTotale_Passage'+str(i+1)],color=Couleurs[i])
+        YlimInf,YlimSup = AxForce.get_ylim()
+        Inc = NumberOfNonNans(Data["IndexCP"])
+        for j in range(0,Inc):
+            plt.plot([Data["IndexCP"][j],Data["IndexCP"][j]],[YlimInf,YlimSup],'-',c="#C5C3C3",linewidth=1)
+        AxForce.set_ylim(YlimInf,YlimSup)        
+        fig1.savefig(OutputPath+"Comparative_ForceTotale_"+LegendName[i]+".png")
+        plt.close()
+        
+        #Puissance
+        fig2 = plt.figure(figsize=(12, 6))
+        AxPower = fig2.add_subplot(111)
+        AxPower.yaxis.grid(True)
+        AxPower.set_title("PUISSANCE INSTANTANEE TOTALE")
+        AxPower.set_xlabel('Temps (s)')
+        AxPower.set_ylabel('Puissance (W)')
+        AxPower.plot(Data["Temps"][0:700],PuissanceMoy,'--k')
+        AxPower.fill_between(Data["Temps"][0:700],PuissanceMoy-PuissanceStd,PuissanceMoy+PuissanceStd,color="#D9D9D9")
+        AxPower.plot(Data["Temps"][0:700],DataPuissance['PuissanceTotale_Passage'+str(i+1)],color=Couleurs[i])
+        YlimInf,YlimSup = AxPower.get_ylim()
+        Inc = NumberOfNonNans(Data["IndexCP"])
+        for j in range(0,Inc):
+            plt.plot([Data["IndexCP"][j],Data["IndexCP"][j]],[YlimInf,YlimSup],'-',c="#C5C3C3",linewidth=1)
+        AxPower.set_ylim(YlimInf,YlimSup)
+        fig2.savefig(OutputPath+"Comparative_PuissanceTotale_"+LegendName[i]+".png")
+        plt.close()
+        
+        #Cadence
+        fig3 = plt.figure(figsize=(12, 6))
+        AxCad = fig3.add_subplot(111)
+        AxCad.yaxis.grid(True)
+        AxCad.set_title("CADENCE")
+        AxCad.set_xlabel('Temps (s)')
+        AxCad.set_ylabel('Cadence (tr/min)')
+        AxCad.plot(Data["Temps"][0:700],CadenceMoy,'--k')
+        AxCad.fill_between(Data["Temps"][0:700],CadenceMoy-CadenceStd,CadenceMoy+CadenceStd,color="#D9D9D9")
+        AxCad.plot(Data["Temps"][0:700],DataCadence['Cadence_Passage'+str(i+1)],color=Couleurs[i])
+        YlimInf,YlimSup = AxCad.get_ylim()
+        Inc = NumberOfNonNans(Data["IndexCP"])
+        for j in range(0,Inc):
+            plt.plot([Data["IndexCP"][j],Data["IndexCP"][j]],[YlimInf,YlimSup],'-',c="#C5C3C3",linewidth=1)
+        AxCad.set_ylim(YlimInf,YlimSup) 
+        fig3.savefig(OutputPath+"Comparative_Cadence_"+LegendName[i]+".png")
+        plt.close()
+        
+        #Energie
+        fig4 = plt.figure(figsize=(12, 6))
+        AxEcum = fig4.add_subplot(111)
+        AxEcum.yaxis.grid(True)
+        AxEcum.set_title("ENERGIE CUMULEE")
+        AxEcum.set_xlabel('Temps (s)')
+        AxEcum.set_ylabel('Energie (J)')
+        AxEcum.plot(Data["Temps"][0:700],EcumMoy,'--k')
+        AxEcum.fill_between(Data["Temps"][0:700],EcumMoy-EcumStd,EcumMoy+EcumStd,color="#D9D9D9")
+        AxEcum.plot(Data["Temps"][0:700],DataEcum['Ecum_Passage'+str(i+1)],color=Couleurs[i])
+        YlimInf,YlimSup = AxEcum.get_ylim()
+        Inc = NumberOfNonNans(Data["IndexCP"])
+        for j in range(0,Inc):
+            plt.plot([Data["IndexCP"][j],Data["IndexCP"][j]],[YlimInf,YlimSup],'-',c="#C5C3C3",linewidth=1)
+        AxEcum.set_ylim(YlimInf,YlimSup)
+        fig4.savefig(OutputPath+"Comparative_Ecum_"+LegendName[i]+".png")
+        plt.close()
+  
+    #------------------------------------------------
+    #CREATION DU RAPPORT PDF
+    #------------------------------------------------
+    
+    if NbReport != 0 :
+        PDFName = "ComparativeReport("+str(NbReport)+").pdf"
+    else :
+        PDFName = "ComparativeReport.pdf"
+        
+    pdf = Canvas(OutputPath+PDFName,pagesize=landscape(A4))
+    # TITLE
+    pdf.setFont("Helvetica-Bold", 18)
+    pdf.drawString(210, 550, "RAPPORT D'ANALYSE - COMPARATIF DEPARTS")
+
+    # PILOT INFOS
+    pdf.setFont("Helvetica-Bold", 12)
+    pdf.drawString(50, 515, "Pilote :")
+    pdf.drawString(50, 490, "Piste :")
+    pdf.drawString(250, 515, "Jour :")
+    pdf.drawString(250, 490, "Heure :")
+    pdf.drawString(450, 515, "Longueur manivelle :")
+    pdf.drawString(450, 490, "Braquet :")
+    pdf.setFont("Helvetica", 12)
+    pdf.drawString(100, 515, PilotName)
+    pdf.drawString(95, 490, Piste)
+    pdf.drawString(291, 515, FileName[21:23] + "/"+FileName[19:21]+'/'+FileName[15:19])
+    pdf.drawString(300, 490, FileName[24:26]+"h"+FileName[26:28])
+    pdf.drawString(577, 515, str(CranksetLength)+" cm")
+    pdf.drawString(512, 490, BraquetTxt)
+    
+    TexteExplicatif1 = "L'énergie mécanique par coup de pédale (CP) correspond à l'énergie totale que le pilote a transmis à son pédalier lors de ce CP."
+    TexteExplicatif2 = "L'énergie par CP est obtenue à partir de la cadence, la force et la durée du CP, ce qui en fait un paramètre complet."
+    pdf.drawString(50, 455, TexteExplicatif1)
+    pdf.drawString(50, 435, TexteExplicatif2)
+    
+    #AFFICHAGE GRAPHIQUE EXPLICATIF
+    pdf.drawInlineImage((OutputPath + "ExampleEcum.png"), -5, 125, 450, 450*0.6)
+    os.remove(OutputPath + "ExampleEcum.png")
+    
+    # AFFICHAGE TABLEAU RECAP
+    pdf.setFont("Helvetica-Bold", 14)
+    pdf.drawString(
+        432, 385, "ENERGIE MECANIQUE DU CP1, CP2, BAS DE BUTTE")
+    # Tableau des données d'énergie cumulée par coup de pédale
+    DataECPT = DataECP.astype(int) #passage en int
+    NbCP = 2 #Nombre de CP étudiés
+    DataECPT = DataECPT.iloc[0:NbCP,:].T.values.tolist() #Passage de dataframe en list de list
+    ListEnergieTotale = np.sum(DataECP).astype(int).values.tolist()
+    #Ajout du nom des départs
+    for i in range(0,len(DataECPT)): 
+        DataECPT[i].insert(NbCP,ListEnergieTotale[i])
+        DataECPT[i].insert(0,LegendName[i])
+    #Ajout des Headers
+    Headers = ['Départ']
+    for i in range(1,NbCP+1):
+        Headers = Headers + ['Energie CP'+str(i)]
+    Headers = Headers + ["Energie finale"]
+    DataECPT = [Headers] + DataECPT
+    #Création du Table pour le Canvas
+    f = Table(DataECPT)
+    #Récupération du max et du min de l'énergie
+    LenDegrade = int((len(DataECPT)-1)/2)
+    if LenDegrade > 3: LenDegrade =3
+    for i in range(0,NbCP+1):
+        if i<NbCP:
+            #Détection des min
+            idxneg = np.argsort(DataECP.iloc[i,:])
+            idxneg = idxneg[0:LenDegrade]
+            #Détection des max
+            idxpos = np.argsort(-DataECP.iloc[i,:])
+            idxpos = idxpos[0:LenDegrade]
+        else :
+            ListEnergieTotaleInverse = [-x for x in ListEnergieTotale]
+            #Détection des min
+            idxneg = np.argsort(ListEnergieTotale)
+            idxneg = idxneg[0:LenDegrade]
+            #Détection des max
+            idxpos = np.argsort(ListEnergieTotaleInverse)
+            idxpos = idxpos[0:LenDegrade]
+        for j in range(0,LenDegrade):
+            if j == 0:
+                f.setStyle(TableStyle([('BACKGROUND',(i+1,idxneg[j]+1),(i+1,idxneg[j]+1),"#418BCF")]))#Bleu foncé
+                f.setStyle(TableStyle([('BACKGROUND',(i+1,idxpos[j]+1),(i+1,idxpos[j]+1),"#FB7575")]))#Rouge foncé
+            if j == 1:
+                f.setStyle(TableStyle([('BACKGROUND',(i+1,idxneg[j]+1),(i+1,idxneg[j]+1),"#9DC3E6")]))#Bleu moyen
+                f.setStyle(TableStyle([('BACKGROUND',(i+1,idxpos[j]+1),(i+1,idxpos[j]+1),"#FDADAD")]))#Rouge moyen
+            if j == 2:
+                f.setStyle(TableStyle([('BACKGROUND',(i+1,idxneg[j]+1),(i+1,idxneg[j]+1),"#DEEBF7")]))#Bleu clair
+                f.setStyle(TableStyle([('BACKGROUND',(i+1,idxpos[j]+1),(i+1,idxpos[j]+1),"#FEDADA")]))#Rouge clair  
+    #Paramètres d'affichage du Table
+    f.setStyle(TableStyle([('FONTNAME',(0,0),(-1,-1),"Helvetica"),
+                           ('FONTNAME',(0,0),(0,-1),"Helvetica-Bold"),
+                           ('BACKGROUND',(0,0),(-1,0),"#E7E6E6"),
+                           ('FONTSIZE',(0,0),(-1,-1),12),
+                           ('ALIGN',(0,0),(-1,-1),'CENTER'),
+                           ('GRID',(0,0),(-1,-1),0.25,colors.black),
+                           ('BOX',(0,0),(0,-1),1,colors.black),
+                           ('BOX',(0,0),(-1,0),1,colors.black),
+                           ('BOX',(0,0),(-1,-1),1,colors.black),
+                           ('BOX',(-1,0),(-1,-1),1,colors.black)
+                           ]))
+    f.wrapOn(pdf, 20, 10)
+    f.drawOn(pdf, 435, 130)#Position du coin inférieur gauche du Table
+    
+    #Ajout logo et cadre
+    pdf.drawImage((OutputPath+"Logos.png"), 730, 490, 75, 75,mask='auto')
+    pdf.drawImage((OutputPath+"Cadre.png"), -2, -4, 848, 604,mask='auto')
+    
+    
+    # AFFICHAGE GRAPHIQUES MOYENS
+    if len(FileStartAnalysis)<6 :
+        # Nouvelle page
+        pdf.showPage()
+        # Titre page
+        pdf.setFont("Helvetica-Bold", 18)
+        pdf.drawString(310, 530, "SUPERPOSITION DES DONNEES")
+        # Cadre legende
+        pdf.drawImage((OutputPath+"BackgroundLegend.png"),260,476,320,35,mask='auto')
+        # Legende départ
+        pdf.setFont("Helvetica", 12)
+        pdf.setFillColor(Couleurs[i])
+        pdf.rect(285,493,12,1, fill=1, stroke=0)
+        pdf.setFillColor(colors.black)
+        pdf.drawString(310, 490, "Départ")
+        # Legende dispersion
+        pdf.setFillColor("#D9D9D9")
+        pdf.rect(375,490,12,8, fill=1, stroke=0)
+        pdf.setFillColor(colors.black)
+        pdf.drawString(400, 490, "Dispersion")
+        # Legende moyenne
+        pdf.setFillColor(colors.black)
+        pdf.drawString(485, 490, "---   Moyenne")
+        
+        # Affichage graphiques
+        pdf.drawInlineImage((OutputPath+"Comparaison_Forces.png"), -15, 250, 450, 225)
+        os.remove(OutputPath+"Comparaison_Forces.png")
+        pdf.drawInlineImage((OutputPath+"Comparaison_Puissances.png"), -15, 25, 450, 225)
+        os.remove(OutputPath+"Comparaison_Puissances.png")
+        pdf.drawInlineImage((OutputPath+"Comparaison_Cadences.png"), 395, 250, 450, 225)
+        os.remove(OutputPath+"Comparaison_Cadences.png")
+        pdf.drawInlineImage((OutputPath+"Comparaison_EnergiesCumulees.png"), 395, 25, 450, 225)
+        os.remove(OutputPath+"Comparaison_EnergiesCumulees.png")
+
+        #Ajout logo et cadre
+        pdf.drawImage((OutputPath+"Logos.png"), 730, 490, 75, 75,mask='auto')
+        pdf.drawImage((OutputPath+"Cadre.png"), -2, -4, 848, 604,mask='auto')
+
+    
+    
+    # AFFICHAGE DONNEES POUR CHAQUE DEPART
+    for i in range(0,len(FileStartAnalysis)):
+        # Nouvelle page
+        pdf.showPage()
+        # Titre page
+        pdf.setFont("Helvetica-Bold", 18)
+        pdf.drawString(310, 530, "DEPART "+LegendName[i])
+        # Cadre legende
+        pdf.drawImage((OutputPath+"BackgroundLegend.png"),260,476,320,35,mask='auto')
+        # Legende départ
+        pdf.setFont("Helvetica", 12)
+        pdf.setFillColor(Couleurs[i])
+        pdf.rect(285,493,12,1, fill=1, stroke=0)
+        pdf.setFillColor(colors.black)
+        pdf.drawString(310, 490, "Départ ")
+        # Legende dispersion
+        pdf.setFillColor("#D9D9D9")
+        pdf.rect(375,490,12,8, fill=1, stroke=0)
+        pdf.setFillColor(colors.black)
+        pdf.drawString(400, 490, "Dispersion")
+        # Legende moyenne
+        pdf.setFillColor(colors.black)
+        pdf.drawString(485, 490, "---   Moyenne")
+        
+        # Affichage graphiques
+        pdf.drawInlineImage((OutputPath+"Comparative_ForceTotale_"+LegendName[i]+".png"), -15, 250, 450, 225)
+        os.remove(OutputPath+"Comparative_ForceTotale_"+LegendName[i]+".png")
+        pdf.drawInlineImage((OutputPath+"Comparative_PuissanceTotale_"+LegendName[i]+".png"), -15, 25, 450, 225)
+        os.remove(OutputPath+"Comparative_PuissanceTotale_"+LegendName[i]+".png")
+        pdf.drawInlineImage((OutputPath+"Comparative_Cadence_"+LegendName[i]+".png"), 395, 250, 450, 225)
+        os.remove(OutputPath+"Comparative_Cadence_"+LegendName[i]+".png")
+        pdf.drawInlineImage((OutputPath+"Comparative_Ecum_"+LegendName[i]+".png"), 395, 25, 450, 225)
+        os.remove(OutputPath+"Comparative_Ecum_"+LegendName[i]+".png")
+
+        #Ajout logo et cadre
+        pdf.drawImage((OutputPath+"Logos.png"), 730, 490, 75, 75,mask='auto')
+        pdf.drawImage((OutputPath+"Cadre.png"), -2, -4, 848, 604,mask='auto')
 
     # SAVE
     pdf.save()

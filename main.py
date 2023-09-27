@@ -9,17 +9,17 @@ CurrentPath = os.path.dirname(__file__)
 os.chdir(CurrentPath)
 
 
-#%% TEST
+#%% PROGRAM
 
 with open('INFOS.txt') as f:
     INFOS = f.readlines()
 
-PilotName = INFOS[2]
-BraquetTxt = INFOS[4]
+PilotName = INFOS[2][0:-1]
+BraquetTxt = INFOS[4][0:-1]
 Braquet = float(INFOS[4][0:2])/float(INFOS[4][3:5])
 CranksetLength = float(INFOS[6])
 WheelCircumference = float(INFOS[8])
-Piste = INFOS[10]
+Piste = INFOS[10][0:-1]
 
 del f
 
@@ -75,12 +75,12 @@ for i in FileDecoded :
         print(i + ' : Extraction & calcul des données déjà effectués.')
     else :
         CalculationForOneStart(PathDecoded,i,PathProcessed,
-                               CirconferenceRoue=WheelCircumference,Braquet=Braquet,LongueurManivelle=CranksetLength,AngleCadre=6,
+                               CirconferenceRoue=WheelCircumference,Braquet=Braquet,LongueurManivelle=CranksetLength,AngleCadre=7,
                                EspacementAimant=90,
                                VerificationResynchro="N",
                                VerificationCrankPeaks="N",
                                VerificationRevolutionCounterPeaks="N",
-                               VerificationRevolutionCounterSpeed="N",
+                               VerificationRevolutionCounterSpeed="O",
                                VerificationImuOrientation="N")
         
 print("\n==================================================")
@@ -109,7 +109,7 @@ for i in FileProcessed :
         StartAnalysisResults = StartCalculation(PathProcessed,i,PathStartAnalysis,PiedAvant='Droit',VerificationStartDetection = "Non",VerificationPedalStroke = "Oui")
 
 print("\n==================================================")
-print("REDACTION DU RAPPORT D'ETUDE...")
+print("REDACTION DES RAPPORTS D'ETUDE...")
 print("==================================================\n")  
 
 # ACTUALISATION/RECUPERATION DES FICHIERS EXISTANTS   
@@ -122,9 +122,12 @@ del FileList
 PathReport = CurrentPath + '\\Data\\E_Report\\'
 FileList = os.listdir(PathReport)
 FileReport =[]
+FileComparativeReport = []
 for file in FileList:
-    if file.endswith("_Report.csv"):
-        FileReport.append(file[0:len(file)-14])
+    if file.endswith("_Report.pdf"):
+        FileReport.append(file[0:len(file)-11])
+    if "ComparativeReport" in file :
+        FileComparativeReport.append(file[0:len(file)-4])    
 del FileList
 
 # EDITION DU RAPPORT SPECIFIQUE A CHAQUE DEPART
@@ -132,7 +135,10 @@ for i in FileStartAnalysis :
     if i in FileReport :
         print(i + " : Rapport d'analyse déjà sorti.")
     else :      
-         ReportEdition(PathStartAnalysis,i,PathReport, PilotName, BraquetTxt, CranksetLength, Piste)
+         ReportEdition(PathStartAnalysis,i,PathReport, PilotName, BraquetTxt, Braquet, CranksetLength, WheelCircumference, Piste)
 
 # EDITION DU RAPPORT COMPARATIF
+
+NbReport = len(FileComparativeReport)
+ReportEditionComparison(PathStartAnalysis, PathReport, FileStartAnalysis, PilotName, BraquetTxt, CranksetLength, WheelCircumference, Piste,NbReport)
 
