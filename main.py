@@ -14,55 +14,67 @@ os.chdir(CurrentPath)
 with open('INFOS.txt') as f:
     INFOS = f.readlines()
 
-PiloteName = INFOS[2]
+PilotName = INFOS[2]
+BraquetTxt = INFOS[4]
 Braquet = float(INFOS[4][0:2])/float(INFOS[4][3:5])
 CranksetLength = float(INFOS[6])
 WheelCircumference = float(INFOS[8])
+Piste = INFOS[10]
 
 del f
 
+print("\n==================================================")
+print("DECODAGE...")
+print("==================================================\n")
 
-#%% DECODAGE DES DONNEES TXT DANS LE FICHIER DATA
-
-from Function.PhylingDecoderExtractor import PhylingDecoder
-
-DataPath = CurrentPath + '\\Data\\'
-FileList = os.listdir(DataPath)
-
-
-# Récupération des noms des fichiers bruts en txt et décodés en csv
-TxtFile = []
-DecodedFile = []
+# ACTUALISATION/RECUPERATION DES FICHIERS EXISTANTS
+PathRaw = CurrentPath + '\\Data\\A_Raw\\'
+FileList = os.listdir(PathRaw)
+FileRaw =[]
 for file in FileList:
     if file.endswith(".txt"):
-        TxtFile.append(file[0:len(file)-4])
+        FileRaw.append(file[0:len(file)-4])
+PathDecoded = CurrentPath + '\\Data\\B_Decoded\\'
+FileList = os.listdir(PathDecoded)
+FileDecoded =[]
+for file in FileList:
     if file.endswith("_Decoded.csv"):
-        DecodedFile.append(file[0:len(file)-4])    
+        FileDecoded.append(file[0:len(file)-12])
 
-# Détection des csv déjà existants pour pas perdre du temps, sinon décodage
-for i in TxtFile :
-    if i+"_Decoded" in DecodedFile :
-        print(i + ' : fichier _Decoded déjà récupéré.')
+# DECODAGE DES DONNEES NON DECODEES
+from Function.PhylingDecoderExtractor import PhylingDecoder
+
+for i in FileRaw :
+    if i in FileDecoded :
+        print(i + ' : fichier déjà décodé.')
     else :
-        PhylingDecoder(DataPath,RawFileName=i+'_Decoded')
-        print(i + ' : décodé.')
-        
-#%%  EXTRACTION DES DONNEES CLASSIQUES DANS LE FICHIER DATA
+        PhylingDecoder(InputPath=PathRaw,RawFileName=i,OutputPath=PathDecoded)
+
+print("\n==================================================")
+print("EXTRACTION & CALCULS...")
+print("==================================================\n")
 
 from Function.Functions import *
 
-#Récupération des noms des fichiers déjà passés par le code de calcul
-CalculatedFile = []
+# ACTUALISATION/RECUPERATION DES FICHIERS EXISTANTS
+FileList = os.listdir(PathDecoded)
+FileDecoded =[]
 for file in FileList:
-    if file.endswith("_CalculatedData.csv"):
-        CalculatedFile.append(file[0:len(file)-4]) 
-        
-# Code de calcul appliqué que si le fichier n'est pas déjà passé par le code de calcul
-for i in DecodedFile :
-    if i[0:len(i)-8]+"_CalculatedData" in CalculatedFile :
-        print(i[0:len(i)-8] + ' : fichier _CalculatedData déjà récupéré.')
+    if file.endswith("_Decoded.csv"):
+        FileDecoded.append(file[0:len(file)-12])     
+PathProcessed = CurrentPath + '\\Data\\C_Processed\\'
+FileList = os.listdir(PathProcessed)
+FileProcessed =[]
+for file in FileList:
+    if file.endswith("_Processed.csv"):
+        FileProcessed.append(file[0:len(file)-14])
+
+# CALCUL DES DONNEES NON TRAITEES
+for i in FileDecoded :
+    if i in FileProcessed :
+        print(i + ' : Extraction & calcul des données déjà effectués.')
     else :
-        CalculationForOneStart(DataPath+i+'.csv',
+        CalculationForOneStart(PathDecoded,i,PathProcessed,
                                CirconferenceRoue=WheelCircumference,Braquet=Braquet,LongueurManivelle=CranksetLength,AngleCadre=6,
                                EspacementAimant=90,
                                VerificationResynchro="N",
@@ -70,29 +82,57 @@ for i in DecodedFile :
                                VerificationRevolutionCounterPeaks="N",
                                VerificationRevolutionCounterSpeed="N",
                                VerificationImuOrientation="N")
+        
+print("\n==================================================")
+print("ANALYSE SPECIFIQUE DES DEPARTS...")
+print("==================================================\n")        
 
-#%% EXTRACTION DES DONNEES SPECIFIQUEMENT LIEES AU DEPART
-
-
-#Récupération des noms des fichiers déjà passés par le code de calcul
-StartAnalysisFile = []
+# ACTUALISATION/RECUPERATION DES FICHIERS EXISTANTS   
+FileList = os.listdir(PathProcessed)
+FileProcessed =[]
 for file in FileList:
-    if file.endswith("_StartAnalysis.csv"):
-        StartAnalysisFile.append(file[0:len(file)-4]) 
-        
-        
-# Code de traitement des départs appliqué que si le fichier n'est pas déjà passé par le code de traitement
-for i in CalculatedFile:
-    if i[0:len(i)-15]+"_StartAnalysis" in StartAnalysisFile :
-        print(i[0:len(i)-15] + ' : fichier _StartAnalysis.csv déjà récupéré.')
+    if file.endswith("_Processed.csv"):
+        FileProcessed.append(file[0:len(file)-14])
+PathStartAnalysis = CurrentPath + '\\Data\\D_StartAnalysis\\'
+FileList = os.listdir(PathStartAnalysis)
+FileStartAnalysis =[]
+for file in FileList:
+    if file.endswith("_StartAnalysis.xlsx"):
+        FileStartAnalysis.append(file[0:len(file)-19])       
+del FileList
+
+# ANALYSE DE DEPART DES DONNEES NON ANALYSEES
+for i in FileProcessed :
+    if i in FileStartAnalysis :
+        print(i + " : Analyse de départ déjà effectuée.")
     else :      
-        StartAnalysisResults = StartCalculation(DataPath+i+'.csv',PiedAvant='Droit',VerificationStartDetection = "Oui",VerificationPedalStroke = "Oui")
+        StartAnalysisResults = StartCalculation(PathProcessed,i,PathStartAnalysis,PiedAvant='Droit',VerificationStartDetection = "Non",VerificationPedalStroke = "Oui")
 
+print("\n==================================================")
+print("REDACTION DU RAPPORT D'ETUDE...")
+print("==================================================\n")  
 
+# ACTUALISATION/RECUPERATION DES FICHIERS EXISTANTS   
+FileList = os.listdir(PathStartAnalysis)
+FileStartAnalysis =[]
+for file in FileList:
+    if file.endswith("_StartAnalysis.xlsx"):
+        FileStartAnalysis.append(file[0:len(file)-19])       
+del FileList      
+PathReport = CurrentPath + '\\Data\\E_Report\\'
+FileList = os.listdir(PathReport)
+FileReport =[]
+for file in FileList:
+    if file.endswith("_Report.csv"):
+        FileReport.append(file[0:len(file)-14])
+del FileList
 
+# EDITION DU RAPPORT SPECIFIQUE A CHAQUE DEPART
+for i in FileStartAnalysis :
+    if i in FileReport :
+        print(i + " : Rapport d'analyse déjà sorti.")
+    else :      
+         ReportEdition(PathStartAnalysis,i,PathReport, PilotName, BraquetTxt, CranksetLength, Piste)
 
-
-
-
-
+# EDITION DU RAPPORT COMPARATIF
 
