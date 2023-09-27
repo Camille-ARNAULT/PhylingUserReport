@@ -73,7 +73,7 @@ def PhylingDecoder(InputPath, RawFileName, OutputPath):
     
     #Trying to load Top tour data
     try :
-        modName4 = "toptour" 
+        modName4 = "analog" 
         data_toptour = extraction["modules"][modName4]["data"] 
         df_toptour = pd.DataFrame(data = {'temps_toptour':data_toptour["T"],'magneto_toptour':data_toptour["0"]})
         print("TOP TOUR : successful data decoding.")
